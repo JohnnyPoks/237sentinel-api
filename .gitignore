@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+ENV/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Model caches / heavy artifacts
+.cache/
+models_cache/
+*.onnx
+*.bin
+*.safetensors
+hf_cache/
+
+# Media uploads (never commit user media)
+uploads/
+tmp_media/
+*.mp4
+*.mp3
+*.ogg
+*.wav
+*.m4a
+
+# DB / local
+*.sqlite3
+*.db
+local.db
+
+# Testing / tooling
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Alembic local
+alembic_local.ini
