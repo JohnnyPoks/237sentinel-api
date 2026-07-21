@@ -56,7 +56,9 @@ class GeminiProvider:
         return bool(settings.gemini_api_key)
 
     def complete(self, system, user, *, want_json=False) -> str:
-        if not self.ready():
+        from app.services.inference import block_gemini, gemini_blocked
+
+        if not self.ready() or gemini_blocked():
             return NO_LLM
         try:
             import httpx
@@ -79,6 +81,8 @@ class GeminiProvider:
             parts = r.json()["candidates"][0]["content"]["parts"]
             return "".join(p.get("text", "") for p in parts)
         except Exception as exc:  # noqa: BLE001
+            if "429" in str(exc):
+                block_gemini()
             log.warning("gemini completion failed: %s", str(exc)[:120])
             return NO_LLM
 

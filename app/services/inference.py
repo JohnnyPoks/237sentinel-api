@@ -24,6 +24,23 @@ log = get_logger("inference")
 
 ROUTER = "https://router.huggingface.co/hf-inference/models"
 
+# --- Gemini cooldown --------------------------------------------------------
+# After a 429 we stop calling Gemini for a short window instead of hammering it
+# on every image/OCR/text call (the logs showed 7 failed calls in a row). The
+# chain simply skips to the HF router while the cooldown is active.
+_GEMINI_COOLDOWN_S = 120
+_gemini_blocked_until = 0.0
+
+
+def gemini_blocked() -> bool:
+    return time.time() < _gemini_blocked_until
+
+
+def block_gemini() -> None:
+    global _gemini_blocked_until
+    _gemini_blocked_until = time.time() + _GEMINI_COOLDOWN_S
+    log.info("gemini rate-limited; skipping it for %ss", _GEMINI_COOLDOWN_S)
+
 
 def use_hf_api() -> bool:
     return settings.inference_mode.lower() == "hf_api"
@@ -151,7 +168,7 @@ def gemini_multimodal(
     prompt: str, media_bytes: bytes, media_mime: str, *, want_json: bool = False
 ) -> str | None:
     """Send a prompt + one media file to Gemini; return the text reply or None."""
-    if not settings.gemini_api_key or not media_bytes:
+    if not settings.gemini_api_key or not media_bytes or gemini_blocked():
         return None
     if len(media_bytes) > GEMINI_INLINE_LIMIT:
         log.info("media too large for inline Gemini (%d bytes); skipping", len(media_bytes))
@@ -190,6 +207,8 @@ def gemini_multimodal(
         parts = r.json()["candidates"][0]["content"]["parts"]
         return "".join(p.get("text", "") for p in parts).strip()
     except Exception as exc:  # noqa: BLE001
+        if "429" in str(exc):
+            block_gemini()
         log.warning("gemini multimodal failed: %s", str(exc)[:140])
         return None
 

@@ -140,9 +140,18 @@ def _classifier_signal(image_bytes: bytes) -> Signal:
 def _ocr_text(image_bytes: bytes) -> str:
     from app.services import inference
 
-    # Light host: no easyocr (it pulls torch) — read text with Gemini vision.
+    # Light host: no easyocr (it pulls torch) — read text with the vision chain
+    # (Gemini vision -> HF router vision), so OCR still works when Gemini is
+    # rate-limited.
     if inference.use_hf_api():
-        return inference.ocr_via_gemini(image_bytes)
+        from app.services.llm import NO_LLM, get_llm
+
+        out = get_llm().complete_vision(
+            "Transcribe ALL visible text in this image exactly, preserving line "
+            "breaks. Output only the text, nothing else.",
+            image_bytes, "image/jpeg",
+        )
+        return out if out and out != NO_LLM else ""
     try:
         import numpy as np
 
