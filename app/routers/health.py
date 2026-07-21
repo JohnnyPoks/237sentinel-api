@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.config import APP_NAME
+from app.config import APP_NAME, settings
 from app.db.session import get_db
 from app.models.tables import Analysis, CommunityReport, Organization
 from app.services.llm import get_llm
@@ -15,7 +15,17 @@ router = APIRouter()
 
 @router.get("/health")
 def health() -> dict:
-    return {"status": "ok", "app": APP_NAME, "llm": get_llm().name}
+    # Booleans only — never leak secret values. Lets us confirm what a host has
+    # configured (which env vars are set) without exposing keys.
+    return {
+        "status": "ok",
+        "app": APP_NAME,
+        "llm": get_llm().name,
+        "inference_mode": settings.inference_mode,
+        "hf_key_set": bool(settings.hf_api_key),
+        "gemini_key_set": bool(settings.gemini_api_key),
+        "telegram_set": bool(settings.telegram_bot_token),
+    }
 
 
 @router.get("/api/v1/stats")
