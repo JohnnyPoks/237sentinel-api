@@ -131,6 +131,15 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     # Optional shared secret verified on the Telegram webhook (set via setWebhook).
     telegram_webhook_secret: str = ""
+    # Public base URL of this service, used to self-register the Telegram webhook
+    # on startup. Render provides RENDER_EXTERNAL_URL automatically; PUBLIC_BASE_URL
+    # overrides it if set.
+    render_external_url: str = ""
+    public_base_url: str = ""
+
+    @property
+    def base_url(self) -> str:
+        return (self.public_base_url or self.render_external_url).rstrip("/")
 
     whatsapp_enabled: bool = False
     whatsapp_token: str = ""

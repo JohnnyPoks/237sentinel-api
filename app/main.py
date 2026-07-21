@@ -71,6 +71,24 @@ def _startup() -> None:
         except Exception as exc:  # noqa: BLE001
             log.error("startup seed failed: %s", exc)
 
+    # Self-register the Telegram webhook so the bot works without a manual step
+    # and survives token changes (uses whatever token is set on this host).
+    if settings.telegram_bot_token and settings.base_url:
+        try:
+            import httpx
+
+            url = f"{settings.base_url}/telegram/webhook"
+            payload = {"url": url}
+            if settings.telegram_webhook_secret:
+                payload["secret_token"] = settings.telegram_webhook_secret
+            r = httpx.post(
+                f"https://api.telegram.org/bot{settings.telegram_bot_token}/setWebhook",
+                json=payload, timeout=15,
+            )
+            log.info("telegram setWebhook -> %s (%s)", url, r.json().get("description"))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("telegram setWebhook failed: %s", exc)
+
 
 @app.get("/")
 def root() -> dict:
