@@ -17,10 +17,14 @@ router = APIRouter()
 def health() -> dict:
     # Booleans only — never leak secret values. Lets us confirm what a host has
     # configured (which env vars are set) without exposing keys.
+    chain = get_llm()
     return {
         "status": "ok",
         "app": APP_NAME,
-        "llm": get_llm().name,
+        # The fallback chain and which providers are ready (keys present).
+        "llm": chain.status(),
+        # Provider that answered the most recent analysis (per-request).
+        "llm_last_used": chain.last_used or "rule-based",
         "inference_mode": settings.inference_mode,
         "hf_key_set": bool(settings.hf_api_key),
         "gemini_key_set": bool(settings.gemini_api_key),

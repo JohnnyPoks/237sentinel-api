@@ -117,6 +117,7 @@ class AnalysisResult(BaseModel):
     explanation: Explanation
     signals: list[Signal]
     checked: list[str]  # machine list of what ran, for the "what we checked" line
+    llm_used: str = "rule-based"  # which provider answered: gemini/hf_router/rule-based
     created_at: str
 
 

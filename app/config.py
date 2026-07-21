@@ -86,13 +86,21 @@ class Settings(BaseSettings):
 
     database_url: str = ""
 
-    llm_provider: str = "none"  # gemini | anthropic | openai | hf | none
-    llm_model: str = "gemini-2.0-flash"
+    # Comma-separated fallback chain, tried left to right; anything unrecognised
+    # is ignored. When all fail the layers fall back to deterministic rules.
+    # Recognised: gemini | hf_router | anthropic | openai | none
+    llm_provider: str = "none"
+    llm_model: str = "gemini-2.0-flash"  # the Gemini model id
     gemini_api_key: str = ""
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     openai_base_url: str = ""
     hf_api_key: str = ""
+
+    # Hugging Face router (OpenAI-compatible) fallback models. Reuses HF_API_KEY.
+    hf_router_base_url: str = "https://router.huggingface.co/v1"
+    hf_router_text_model: str = "meta-llama/Llama-3.3-70B-Instruct"
+    hf_router_vision_model: str = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 
     hf_home: str = "./hf_cache"
     hf_token: str = ""

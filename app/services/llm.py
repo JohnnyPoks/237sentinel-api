@@ -1,12 +1,18 @@
-"""Provider-agnostic LLM access (brief §5).
+"""Provider-agnostic LLM access with a configurable fallback chain (brief §5).
 
-The rest of the codebase never knows which backend is in use. Swap via env:
-LLM_PROVIDER = anthropic | openai | hf | none.
+The chain is set in ONE place via env: LLM_PROVIDER is a comma-separated list
+tried left to right, e.g. "gemini,hf_router". Each provider exposes two calls:
 
-`none` is a first-class provider: it returns a sentinel so the semantic and
-explanation layers fall back to deterministic, rule-based output. This means
-the whole app runs with zero API keys — the default — and the demo never dies
-because a key is missing or a provider is rate-limited.
+  * complete(system, user)                  -> text reasoning
+  * complete_vision(prompt, media, mime)    -> reasoning over an image/PDF
+
+On quota (429) or any failure a provider returns NO_LLM and the chain tries the
+next one. When every provider returns NO_LLM the semantic/explanation layers fall
+back to deterministic rules. So the order is: Gemini -> HF router -> rule-based.
+
+The active provider for the most recent call is recorded on the chain
+(`last_used`) and surfaced per request in the analysis result and in /health.
+The rest of the codebase never knows which backend answered.
 """
 from __future__ import annotations
 
@@ -17,190 +23,260 @@ from app.core.logging import get_logger
 
 log = get_logger("llm")
 
-# Sentinel returned by the `none` provider and on hard failure.
 NO_LLM = "__NO_LLM__"
 
 
 class LLMProvider(Protocol):
     name: str
 
-    def complete(self, system: str, user: str, *, want_json: bool = False) -> str:
-        ...
+    def complete(self, system: str, user: str, *, want_json: bool = False) -> str: ...
+
+    def complete_vision(
+        self, prompt: str, media_bytes: bytes, media_mime: str, *, want_json: bool = False
+    ) -> str: ...
 
 
 class NoneProvider:
-    """No LLM configured. Callers must handle NO_LLM by degrading gracefully."""
-
     name = "none"
 
-    def complete(self, system: str, user: str, *, want_json: bool = False) -> str:
+    def complete(self, system, user, *, want_json=False) -> str:
+        return NO_LLM
+
+    def complete_vision(self, prompt, media_bytes, media_mime, *, want_json=False) -> str:
         return NO_LLM
 
 
 class GeminiProvider:
-    """Google Gemini via the Generative Language API (no extra SDK; just httpx).
-
-    The key stays server-side — it is never shipped to the browser. Powers the
-    semantic and explanation layers (and, later, the conversational follow-up).
-    """
+    """Google Gemini (multimodal). Key stays server-side."""
 
     name = "gemini"
 
-    def __init__(self) -> None:
-        import httpx
+    @staticmethod
+    def ready() -> bool:
+        return bool(settings.gemini_api_key)
 
-        self._key = settings.gemini_api_key
-        model = settings.llm_model or "gemini-2.0-flash"
-        # Guard against a non-Gemini model id being left in LLM_MODEL.
-        self._model = model if model.startswith("gemini") else "gemini-2.0-flash"
-        self._http = httpx.Client(timeout=45.0)
-
-    def complete(self, system: str, user: str, *, want_json: bool = False) -> str:
+    def complete(self, system, user, *, want_json=False) -> str:
+        if not self.ready():
+            return NO_LLM
         try:
-            url = (
-                "https://generativelanguage.googleapis.com/v1beta/models/"
-                f"{self._model}:generateContent"
-            )
-            gen_config: dict = {"temperature": 0.2}
+            import httpx
+
+            model = settings.llm_model if settings.llm_model.startswith("gemini") else "gemini-2.0-flash"
+            gen: dict = {"temperature": 0.2}
             if want_json:
-                gen_config["responseMimeType"] = "application/json"
-            r = self._http.post(
-                url,
-                headers={"x-goog-api-key": self._key},
+                gen["responseMimeType"] = "application/json"
+            r = httpx.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                headers={"x-goog-api-key": settings.gemini_api_key},
                 json={
                     "systemInstruction": {"parts": [{"text": system}]},
                     "contents": [{"role": "user", "parts": [{"text": user}]}],
-                    "generationConfig": gen_config,
+                    "generationConfig": gen,
                 },
+                timeout=45,
             )
             r.raise_for_status()
-            data = r.json()
-            parts = data["candidates"][0]["content"]["parts"]
+            parts = r.json()["candidates"][0]["content"]["parts"]
             return "".join(p.get("text", "") for p in parts)
         except Exception as exc:  # noqa: BLE001
-            log.warning("gemini completion failed: %s", exc)
+            log.warning("gemini completion failed: %s", str(exc)[:120])
+            return NO_LLM
+
+    def complete_vision(self, prompt, media_bytes, media_mime, *, want_json=False) -> str:
+        if not self.ready():
+            return NO_LLM
+        from app.services import inference
+
+        out = inference.gemini_multimodal(prompt, media_bytes, media_mime, want_json=want_json)
+        return out if out else NO_LLM
+
+
+class HFRouterProvider:
+    """Hugging Face router via the OpenAI SDK. Reuses HF_API_KEY.
+
+    Text  -> hf_router_text_model (Llama-3.3-70B).
+    Vision-> hf_router_vision_model (a Llama-4 multimodal model). PDFs are
+             rendered to an image first; audio/video are not supported here and
+             fall through to the next layer.
+    """
+
+    name = "hf_router"
+
+    def __init__(self) -> None:
+        self._client = None
+
+    @staticmethod
+    def ready() -> bool:
+        return bool(settings.hf_api_key)
+
+    def _cli(self):
+        if self._client is None:
+            from openai import OpenAI
+
+            self._client = OpenAI(
+                base_url=settings.hf_router_base_url, api_key=settings.hf_api_key
+            )
+        return self._client
+
+    def complete(self, system, user, *, want_json=False) -> str:
+        if not self.ready():
+            return NO_LLM
+        try:
+            kwargs = {}
+            if want_json:
+                kwargs["response_format"] = {"type": "json_object"}
+            r = self._cli().chat.completions.create(
+                model=settings.hf_router_text_model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=0.2,
+                max_tokens=1024,
+                **kwargs,
+            )
+            return r.choices[0].message.content or NO_LLM
+        except Exception as exc:  # noqa: BLE001
+            log.warning("hf_router completion failed: %s", str(exc)[:140])
+            return NO_LLM
+
+    def complete_vision(self, prompt, media_bytes, media_mime, *, want_json=False) -> str:
+        if not self.ready():
+            return NO_LLM
+        import base64
+
+        img_bytes, mime = media_bytes, media_mime
+        # These vision models take images, not PDFs — render the first PDF page.
+        if media_mime == "application/pdf":
+            try:
+                import fitz  # PyMuPDF
+
+                doc = fitz.open(stream=media_bytes, filetype="pdf")
+                img_bytes = doc[0].get_pixmap(dpi=150).tobytes("png")
+                mime = "image/png"
+                doc.close()
+            except Exception:  # noqa: BLE001
+                return NO_LLM
+        elif not media_mime.startswith("image/"):
+            return NO_LLM  # audio/video: let the next layer handle it
+
+        try:
+            b64 = base64.b64encode(img_bytes).decode()
+            kwargs = {}
+            if want_json:
+                kwargs["response_format"] = {"type": "json_object"}
+            r = self._cli().chat.completions.create(
+                model=settings.hf_router_vision_model,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                    ],
+                }],
+                temperature=0.2,
+                max_tokens=1024,
+                **kwargs,
+            )
+            return r.choices[0].message.content or NO_LLM
+        except Exception as exc:  # noqa: BLE001
+            log.warning("hf_router vision failed: %s", str(exc)[:140])
             return NO_LLM
 
 
 class AnthropicProvider:
     name = "anthropic"
 
-    def __init__(self) -> None:
-        import anthropic
+    @staticmethod
+    def ready() -> bool:
+        return bool(settings.anthropic_api_key)
 
-        self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        self._model = settings.llm_model or "claude-sonnet-5"
-
-    def complete(self, system: str, user: str, *, want_json: bool = False) -> str:
+    def complete(self, system, user, *, want_json=False) -> str:
+        if not self.ready():
+            return NO_LLM
         try:
-            msg = self._client.messages.create(
-                model=self._model,
-                max_tokens=1024,
-                system=system,
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            msg = client.messages.create(
+                model=settings.llm_model or "claude-sonnet-5",
+                max_tokens=1024, system=system,
                 messages=[{"role": "user", "content": user}],
             )
-            return "".join(
-                block.text for block in msg.content if block.type == "text"
-            )
+            return "".join(b.text for b in msg.content if b.type == "text")
         except Exception as exc:  # noqa: BLE001
-            log.warning("anthropic completion failed: %s", exc)
+            log.warning("anthropic completion failed: %s", str(exc)[:120])
             return NO_LLM
 
-
-class OpenAIProvider:
-    """Works with OpenAI and any OpenAI-compatible endpoint (set OPENAI_BASE_URL)."""
-
-    name = "openai"
-
-    def __init__(self) -> None:
-        import httpx
-
-        self._base = (settings.openai_base_url or "https://api.openai.com/v1").rstrip(
-            "/"
-        )
-        self._key = settings.openai_api_key
-        self._model = settings.llm_model or "gpt-4o-mini"
-        self._http = httpx.Client(timeout=30.0)
-
-    def complete(self, system: str, user: str, *, want_json: bool = False) -> str:
-        try:
-            body = {
-                "model": self._model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "temperature": 0.2,
-            }
-            if want_json:
-                body["response_format"] = {"type": "json_object"}
-            r = self._http.post(
-                f"{self._base}/chat/completions",
-                headers={"Authorization": f"Bearer {self._key}"},
-                json=body,
-            )
-            r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"]
-        except Exception as exc:  # noqa: BLE001
-            log.warning("openai completion failed: %s", exc)
-            return NO_LLM
+    def complete_vision(self, prompt, media_bytes, media_mime, *, want_json=False) -> str:
+        return NO_LLM
 
 
-class HFProvider:
-    """Hugging Face Inference API (chat-completions compatible route)."""
-
-    name = "hf"
-
-    def __init__(self) -> None:
-        import httpx
-
-        self._key = settings.hf_api_key
-        self._model = settings.llm_model or "meta-llama/Llama-3.1-8B-Instruct"
-        self._http = httpx.Client(timeout=45.0)
-
-    def complete(self, system: str, user: str, *, want_json: bool = False) -> str:
-        try:
-            url = f"https://api-inference.huggingface.co/models/{self._model}/v1/chat/completions"
-            r = self._http.post(
-                url,
-                headers={"Authorization": f"Bearer {self._key}"},
-                json={
-                    "model": self._model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    "temperature": 0.2,
-                },
-            )
-            r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"]
-        except Exception as exc:  # noqa: BLE001
-            log.warning("hf completion failed: %s", exc)
-            return NO_LLM
+_REGISTRY: dict[str, type] = {
+    "gemini": GeminiProvider,
+    "hf_router": HFRouterProvider,
+    "anthropic": AnthropicProvider,
+    "none": NoneProvider,
+}
 
 
-_provider: LLMProvider | None = None
+class LLMChain:
+    """Tries providers in order; records which one answered (`last_used`)."""
+
+    name = "chain"
+
+    def __init__(self, providers: list) -> None:
+        self.providers = providers
+        self.last_used: str | None = None
+
+    def complete(self, system, user, *, want_json=False) -> str:
+        self.last_used = None
+        for p in self.providers:
+            out = p.complete(system, user, want_json=want_json)
+            if out and out != NO_LLM:
+                self.last_used = p.name
+                return out
+        return NO_LLM
+
+    def complete_vision(self, prompt, media_bytes, media_mime, *, want_json=False) -> str:
+        self.last_used = None
+        for p in self.providers:
+            out = p.complete_vision(prompt, media_bytes, media_mime, want_json=want_json)
+            if out and out != NO_LLM:
+                self.last_used = p.name
+                return out
+        return NO_LLM
+
+    def status(self) -> dict:
+        return {
+            "chain": [p.name for p in self.providers],
+            "ready": {
+                p.name: (p.ready() if hasattr(p, "ready") else True)
+                for p in self.providers
+            },
+            "fallback": "rule-based",
+        }
 
 
-def get_llm() -> LLMProvider:
-    global _provider
-    if _provider is not None:
-        return _provider
-    choice = (settings.llm_provider or "none").lower()
-    try:
-        if choice == "gemini" and settings.gemini_api_key:
-            _provider = GeminiProvider()
-        elif choice == "anthropic" and settings.anthropic_api_key:
-            _provider = AnthropicProvider()
-        elif choice == "openai" and settings.openai_api_key:
-            _provider = OpenAIProvider()
-        elif choice == "hf" and settings.hf_api_key:
-            _provider = HFProvider()
-        else:
-            _provider = NoneProvider()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("LLM provider init failed (%s); using none", exc)
-        _provider = NoneProvider()
-    log.info("LLM provider: %s", _provider.name)
-    return _provider
+_chain: LLMChain | None = None
+
+
+def get_llm() -> LLMChain:
+    global _chain
+    if _chain is not None:
+        return _chain
+    names = [n.strip().lower() for n in (settings.llm_provider or "none").split(",") if n.strip()]
+    providers = []
+    for n in names:
+        cls = _REGISTRY.get(n)
+        if cls and n != "none":
+            try:
+                providers.append(cls())
+            except Exception as exc:  # noqa: BLE001
+                log.warning("provider %s init failed: %s", n, exc)
+    if not providers:
+        providers = [NoneProvider()]
+    _chain = LLMChain(providers)
+    log.info("LLM chain: %s", " -> ".join(p.name for p in providers) + " -> rule-based")
+    return _chain

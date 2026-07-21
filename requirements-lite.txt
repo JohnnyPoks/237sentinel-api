@@ -24,7 +24,8 @@ opencv-python-headless==4.11.0.86
 numpy==2.2.1
 pymupdf==1.25.2
 
-# --- Optional LLM providers (import-guarded) ---
+# --- LLM providers ---
+openai==1.59.6          # used for the Hugging Face router fallback
 anthropic==0.42.0
 
 # --- Telegram bot (optional) ---

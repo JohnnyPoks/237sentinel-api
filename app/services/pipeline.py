@@ -166,6 +166,9 @@ def run(
         media_bytes=file_bytes if media_mime else None,
         media_mime=media_mime,
     )
+    from app.services.llm import get_llm
+
+    llm_used = get_llm().last_used or "rule-based"
     registry = registry_service.match_any(db, gathered_text)
 
     outcome = verification_engine.decide(signals, semantic, registry)
@@ -199,6 +202,7 @@ def run(
         explanation=explanation,
         signals=signals,
         checked=checked_machine,
+        llm_used=llm_used,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
 

@@ -151,17 +151,13 @@ def _extract_json(raw: str) -> dict | None:
         return None
 
 
-def _gemini_media(
+def _media_semantic(
     text: str, findings: list[Signal], media_bytes: bytes, media_mime: str
 ) -> SemanticResult | None:
-    """Let Gemini read the media (image/PDF/audio/video) directly and return the
-    semantic reading. Used when a media file is present and a Gemini key is set —
-    it understands a forged communiqué or a cloned voice note far better than the
-    extracted text alone. Returns None to fall back to the text path."""
-    from app.services import inference
-
-    if not inference.gemini_available():
-        return None
+    """Read the media (image/PDF/...) directly through the LLM chain's vision
+    path (Gemini vision -> HF router vision). Understands a forged communiqué or
+    a cloned voice note far better than the extracted text alone. Returns None to
+    fall back to the text path."""
     findings_summary = "; ".join(f"{s.name}={s.risk:.2f}" for s in findings) or "none"
     prompt = (
         SYSTEM_PROMPT
@@ -169,14 +165,14 @@ def _gemini_media(
         + f"\n{text[:3000]}\n\nForensic findings: {findings_summary}\n\n"
         "Look at the media itself and return the JSON object now."
     )
-    raw = inference.gemini_multimodal(prompt, media_bytes, media_mime, want_json=True)
-    data = _extract_json(raw or "")
+    raw = get_llm().complete_vision(prompt, media_bytes, media_mime, want_json=True)
+    data = _extract_json(raw)
     if data is None:
         return None
     try:
         return SemanticResult.model_validate(data)
     except Exception as exc:  # noqa: BLE001
-        log.warning("gemini media semantic invalid: %s", exc)
+        log.warning("media semantic invalid: %s", exc)
         return None
 
 
@@ -193,13 +189,11 @@ def analyze(
     the deterministic heuristic.
     """
     if media_bytes and media_mime:
-        via_media = _gemini_media(text, findings, media_bytes, media_mime)
+        via_media = _media_semantic(text, findings, media_bytes, media_mime)
         if via_media is not None:
             return via_media
 
     llm = get_llm()
-    if llm.name == "none":
-        return _heuristic(text, findings)
 
     findings_summary = "; ".join(
         f"{s.name}={s.risk:.2f}({s.direction})" for s in findings

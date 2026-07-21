@@ -29,7 +29,8 @@ pymupdf==1.25.2
 easyocr==1.7.2
 faster-whisper==1.1.1
 
-# --- Optional LLM providers (import-guarded; not required to boot) ---
+# --- LLM providers ---
+openai==1.59.6          # used for the Hugging Face router fallback
 anthropic==0.42.0
 
 # --- Telegram bot (optional) ---

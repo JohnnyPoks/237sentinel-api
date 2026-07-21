@@ -12,7 +12,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     INFERENCE_MODE=hf_api \
     SEED_ON_STARTUP=true \
-    LLM_PROVIDER=gemini \
+    LLM_PROVIDER=gemini,hf_router \
     LLM_MODEL=gemini-2.0-flash \
     APP_ENV=production
 
