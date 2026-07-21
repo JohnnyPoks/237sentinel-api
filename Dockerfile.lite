@@ -1,0 +1,24 @@
+# Lite image for Render (free tier). No torch: models run on Hugging Face and
+# are called over HTTPS (INFERENCE_MODE=hf_api). ffmpeg is included so audio and
+# video normalisation still work before sending clips to the hosted models.
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    INFERENCE_MODE=hf_api \
+    SEED_ON_STARTUP=true
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements-lite.txt .
+RUN pip install --no-cache-dir -r requirements-lite.txt
+
+COPY . .
+
+# Render provides $PORT; default to 7860 for local runs.
+EXPOSE 7860
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860}"]

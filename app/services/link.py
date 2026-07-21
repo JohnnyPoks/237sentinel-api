@@ -122,10 +122,21 @@ def _whois_age_signal(domain: str) -> Signal:
 
 def _classifier_signal(url: str) -> Signal:
     try:
-        from app.services.model_loader import link_classifier
+        from app.config import Models
+        from app.services import inference
 
-        clf = link_classifier()
-        preds = clf(url)
+        if inference.use_hf_api():
+            # urlbert is not served by the HF Inference API (410); this returns
+            # None and we degrade to a neutral signal — link checking still runs
+            # on WHOIS, typosquatting, HTTPS and the semantic layer.
+            preds = inference.text_classification(Models.LINK, url)
+            if not preds:
+                raise RuntimeError("link model not available via hf_api")
+        else:
+            from app.services.model_loader import link_classifier
+
+            clf = link_classifier()
+            preds = clf(url)
         if preds and isinstance(preds[0], list):
             preds = preds[0]
         scores = {p["label"].lower(): float(p["score"]) for p in preds}

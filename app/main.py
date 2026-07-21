@@ -62,6 +62,14 @@ def _startup() -> None:
     except Exception as exc:  # noqa: BLE001
         log.error("database init failed: %s", exc)
 
+    if settings.seed_on_startup:
+        try:
+            from scripts.seed import seed
+
+            seed()
+        except Exception as exc:  # noqa: BLE001
+            log.error("startup seed failed: %s", exc)
+
 
 @app.get("/")
 def root() -> dict:

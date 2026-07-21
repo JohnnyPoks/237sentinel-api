@@ -1,0 +1,32 @@
+# Render Blueprint (free tier). Deploy: Render dashboard -> New -> Blueprint ->
+# connect the JohnnyPoks/237sentinel-api repo. Then set the two secret values
+# (HF_API_KEY, GEMINI_API_KEY) in the dashboard — they are marked sync:false.
+services:
+  - type: web
+    name: 237sentinel-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile.lite
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: INFERENCE_MODE
+        value: hf_api
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: LLM_MODEL
+        value: gemini-2.0-flash
+      - key: SEED_ON_STARTUP
+        value: "true"
+      - key: APP_ENV
+        value: production
+      - key: CORS_ORIGINS
+        value: https://sentinel237cm.web.app,https://sentinel237cm.firebaseapp.com,http://localhost:5173
+      # Secrets — set these in the Render dashboard, not in the repo:
+      - key: HF_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      # Optional: a Postgres URL (Supabase/Neon) for durable data. Without it the
+      # app uses ephemeral SQLite and re-seeds the registry on each start.
+      - key: DATABASE_URL
+        sync: false

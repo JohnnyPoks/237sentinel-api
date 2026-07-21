@@ -98,10 +98,18 @@ def _ela_signal(image_bytes: bytes) -> Signal:
 
 def _classifier_signal(image_bytes: bytes) -> Signal:
     try:
-        from app.services.model_loader import image_classifier
+        from app.config import Models
+        from app.services import inference
 
-        clf = image_classifier()
-        preds = clf(_load(image_bytes))
+        if inference.use_hf_api():
+            preds = inference.image_classification(Models.IMAGE, image_bytes)
+            if not preds:
+                raise RuntimeError("image model unavailable via hf_api")
+        else:
+            from app.services.model_loader import image_classifier
+
+            clf = image_classifier()
+            preds = clf(_load(image_bytes))
         if preds and isinstance(preds[0], list):
             preds = preds[0]
         scores = {p["label"].lower(): float(p["score"]) for p in preds}
@@ -130,6 +138,11 @@ def _classifier_signal(image_bytes: bytes) -> Signal:
 
 
 def _ocr_text(image_bytes: bytes) -> str:
+    from app.services import inference
+
+    # Light host: no easyocr (it pulls torch) — read text with Gemini vision.
+    if inference.use_hf_api():
+        return inference.ocr_via_gemini(image_bytes)
     try:
         import numpy as np
 

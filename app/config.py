@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     hf_home: str = "./hf_cache"
     hf_token: str = ""
 
+    # How model inference runs:
+    #   local  -> load transformers/torch models in-process (needs a big host)
+    #   hf_api -> call the models hosted on Hugging Face over HTTPS (light host,
+    #             e.g. Render free tier). Needs HF_API_KEY. This is how the free
+    #             deployment leverages the open-source models without shipping torch.
+    inference_mode: str = "local"
+
     google_safe_browsing_key: str = ""
 
     rate_limit_per_hour: int = 20
@@ -107,6 +114,11 @@ class Settings(BaseSettings):
 
     # Simple admin gate for the moderation endpoints (X-Admin-Token header).
     admin_token: str = ""
+
+    # Re-seed the registry + scam patterns on startup. Useful on hosts with an
+    # ephemeral filesystem (Render free tier + SQLite), where seed data would
+    # otherwise be lost on restart. Idempotent.
+    seed_on_startup: bool = False
 
     telegram_bot_token: str = ""
 

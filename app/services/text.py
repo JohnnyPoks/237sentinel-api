@@ -68,10 +68,18 @@ def _extract_urls(text: str) -> list[str]:
 
 def _zeroshot_signals(text: str) -> list[Signal]:
     try:
-        from app.services.model_loader import text_zeroshot
+        from app.config import Models
+        from app.services import inference
 
-        clf = text_zeroshot()
-        out = clf(text, candidate_labels=TEXT_CANDIDATE_LABELS, multi_label=True)
+        if inference.use_hf_api():
+            out = inference.zero_shot(Models.TEXT_ZEROSHOT, text, TEXT_CANDIDATE_LABELS)
+            if not out:
+                raise RuntimeError("hf zero-shot unavailable")
+        else:
+            from app.services.model_loader import text_zeroshot
+
+            clf = text_zeroshot()
+            out = clf(text, candidate_labels=TEXT_CANDIDATE_LABELS, multi_label=True)
         signals = []
         for label, score in zip(out["labels"], out["scores"]):
             if score < T.TEXT_LABEL_PRESENT:

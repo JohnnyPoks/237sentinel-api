@@ -44,10 +44,19 @@ def _to_wav(audio_bytes: bytes, suffix: str) -> str | None:
 
 def _synthesis_signal(wav_path: str) -> Signal:
     try:
-        from app.services.model_loader import audio_classifier
+        from app.config import Models
+        from app.services import inference
 
-        clf = audio_classifier()
-        preds = clf(wav_path)
+        if inference.use_hf_api():
+            with open(wav_path, "rb") as f:
+                preds = inference.audio_classification(Models.AUDIO, f.read())
+            if not preds:
+                raise RuntimeError("audio model unavailable via hf_api")
+        else:
+            from app.services.model_loader import audio_classifier
+
+            clf = audio_classifier()
+            preds = clf(wav_path)
         if preds and isinstance(preds[0], list):
             preds = preds[0]
         scores = {p["label"].lower(): float(p["score"]) for p in preds}
@@ -77,6 +86,11 @@ def _synthesis_signal(wav_path: str) -> Signal:
 
 def _transcribe(wav_path: str) -> str:
     try:
+        from app.services import inference
+
+        if inference.use_hf_api():
+            with open(wav_path, "rb") as f:
+                return inference.transcribe(f.read()) or ""
         from app.services.model_loader import whisper_model
 
         model = whisper_model()

@@ -1,0 +1,31 @@
+# Lite dependency set for the free Render deployment (INFERENCE_MODE=hf_api).
+# NO torch / transformers / easyocr / faster-whisper — the models are called
+# over HTTPS on Hugging Face instead, so this fits a 512 MB free host.
+
+# --- Web framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# --- Database ---
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.3
+
+# --- HTTP / links / inference calls ---
+httpx==0.28.1
+tldextract==5.1.3
+python-whois==0.9.5
+
+# --- Media handling (lightweight, no torch) ---
+pillow==11.1.0
+opencv-python-headless==4.11.0.86
+numpy==2.2.1
+pymupdf==1.25.2
+
+# --- Optional LLM providers (import-guarded) ---
+anthropic==0.42.0
+
+# --- Telegram bot (optional) ---
+python-telegram-bot==21.9

@@ -123,6 +123,29 @@ filesystem is ephemeral, so **`DATABASE_URL` must point at Postgres** (Supabase
 or Neon) in production; without it the app uses SQLite, which is wiped on
 restart.
 
+## Deploy — Render (free, via the Hugging Face Inference API)
+
+Docker Spaces on HF now require a paid plan, so the free path keeps the backend
+light on **Render** and calls the open-source models **hosted on Hugging Face**
+over HTTPS (`INFERENCE_MODE=hf_api`) instead of loading `torch` in-process. The
+semantic + explanation layers use Gemini. This fits Render's free 512 MB tier.
+
+1. Render dashboard → **New → Blueprint** → connect `JohnnyPoks/237sentinel-api`.
+   It reads [`render.yaml`](render.yaml) and builds [`Dockerfile.lite`](Dockerfile.lite)
+   (no torch; ffmpeg included).
+2. Set the two secrets in the dashboard: `HF_API_KEY` (an HF token with
+   "Inference Providers" permission, from <https://huggingface.co/settings/tokens>)
+   and `GEMINI_API_KEY`.
+3. Deploy. The registry re-seeds on startup (`SEED_ON_STARTUP=true`) because the
+   free disk is ephemeral. For durable data, set `DATABASE_URL` to a free
+   Postgres (Supabase/Neon).
+
+What runs in this mode: text (zero-shot, hosted), image deepfake check (hosted),
+Gemini reads text inside images, link (WHOIS + typosquatting + semantic — the
+tiny urlbert model isn't served by the Inference API, so it degrades to those),
+document (PyMuPDF), and audio/video normalise with ffmpeg then call the hosted
+models. Everything degrades gracefully if a hosted model is momentarily busy.
+
 ## Environment variables
 
 See [`.env.example`](.env.example) for the full list. The important ones:
