@@ -101,6 +101,26 @@ def _join_fr(items: list[str]) -> str:
     return ", ".join(items[:-1]) + " et " + items[-1]
 
 
+_MIME_BY_SUFFIX = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".webp": "image/webp", ".gif": "image/gif", ".pdf": "application/pdf",
+    ".ogg": "audio/ogg", ".oga": "audio/ogg", ".mp3": "audio/mpeg",
+    ".wav": "audio/wav", ".m4a": "audio/mp4", ".opus": "audio/ogg",
+    ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+    ".3gp": "video/3gpp",
+}
+_DEFAULT_MIME = {
+    ContentType.image: "image/jpeg", ContentType.document: "application/pdf",
+    ContentType.audio: "audio/ogg", ContentType.video: "video/mp4",
+}
+
+
+def _media_mime(content_type: ContentType, suffix: str) -> str | None:
+    if content_type not in _DEFAULT_MIME:
+        return None
+    return _MIME_BY_SUFFIX.get((suffix or "").lower(), _DEFAULT_MIME[content_type])
+
+
 def _dispatch(
     content_type: ContentType,
     *,
@@ -139,7 +159,13 @@ def run(
     signals = _flatten_signals(output)
     gathered_text = _gather_text(output)
 
-    semantic = semantic_service.analyze(gathered_text, signals)
+    # For media, let the semantic layer read the file itself (Gemini multimodal).
+    media_mime = _media_mime(content_type, suffix) if file_bytes else None
+    semantic = semantic_service.analyze(
+        gathered_text, signals,
+        media_bytes=file_bytes if media_mime else None,
+        media_mime=media_mime,
+    )
     registry = registry_service.match_any(db, gathered_text)
 
     outcome = verification_engine.decide(signals, semantic, registry)

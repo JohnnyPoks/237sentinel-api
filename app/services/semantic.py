@@ -151,8 +151,52 @@ def _extract_json(raw: str) -> dict | None:
         return None
 
 
-def analyze(text: str, findings: list[Signal]) -> SemanticResult:
-    """Return a SemanticResult for the given extracted text + forensic findings."""
+def _gemini_media(
+    text: str, findings: list[Signal], media_bytes: bytes, media_mime: str
+) -> SemanticResult | None:
+    """Let Gemini read the media (image/PDF/audio/video) directly and return the
+    semantic reading. Used when a media file is present and a Gemini key is set —
+    it understands a forged communiqué or a cloned voice note far better than the
+    extracted text alone. Returns None to fall back to the text path."""
+    from app.services import inference
+
+    if not inference.gemini_available():
+        return None
+    findings_summary = "; ".join(f"{s.name}={s.risk:.2f}" for s in findings) or "none"
+    prompt = (
+        SYSTEM_PROMPT
+        + "\n\nThe user forwarded this media file. Extracted text (may be empty): "
+        + f"\n{text[:3000]}\n\nForensic findings: {findings_summary}\n\n"
+        "Look at the media itself and return the JSON object now."
+    )
+    raw = inference.gemini_multimodal(prompt, media_bytes, media_mime, want_json=True)
+    data = _extract_json(raw or "")
+    if data is None:
+        return None
+    try:
+        return SemanticResult.model_validate(data)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("gemini media semantic invalid: %s", exc)
+        return None
+
+
+def analyze(
+    text: str,
+    findings: list[Signal],
+    media_bytes: bytes | None = None,
+    media_mime: str | None = None,
+) -> SemanticResult:
+    """Return a SemanticResult for the given extracted text + forensic findings.
+
+    When a media file and a Gemini key are available, Gemini reads the media
+    directly (multimodal); otherwise we use the configured text LLM, and finally
+    the deterministic heuristic.
+    """
+    if media_bytes and media_mime:
+        via_media = _gemini_media(text, findings, media_bytes, media_mime)
+        if via_media is not None:
+            return via_media
+
     llm = get_llm()
     if llm.name == "none":
         return _heuristic(text, findings)

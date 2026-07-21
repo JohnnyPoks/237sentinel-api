@@ -26,6 +26,9 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      # Telegram bot (hosted as a webhook in this service). Set in dashboard:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
       # Optional: a Postgres URL (Supabase/Neon) for durable data. Without it the
       # app uses ephemeral SQLite and re-seeds the registry on each start.
       - key: DATABASE_URL

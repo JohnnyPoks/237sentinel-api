@@ -136,23 +136,38 @@ def transcribe(audio_bytes: bytes, model: str = "openai/whisper-large-v3") -> st
         return None
 
 
-# --- Gemini vision OCR (replaces easyocr on the light host) ------------------
-def ocr_via_gemini(image_bytes: bytes) -> str:
-    """Read visible text from an image using Gemini vision.
+# --- Gemini multimodal (Gemini reads images/PDF/audio/video directly) --------
+# Inline data caps the whole request at 20 MB; skip larger media and fall back
+# to the text path. gemini-2.0-flash accepts image/*, application/pdf, audio/*
+# and video/* as inline_data.
+GEMINI_INLINE_LIMIT = 18 * 1024 * 1024
 
-    On the light host we do not ship easyocr (it pulls torch). Gemini reads the
-    text in a forged communiqué directly, which is what the OCR step feeds to the
-    text service. Returns "" if Gemini is unavailable.
-    """
-    if not settings.gemini_api_key:
-        return ""
+
+def gemini_available() -> bool:
+    return bool(settings.gemini_api_key)
+
+
+def gemini_multimodal(
+    prompt: str, media_bytes: bytes, media_mime: str, *, want_json: bool = False
+) -> str | None:
+    """Send a prompt + one media file to Gemini; return the text reply or None."""
+    if not settings.gemini_api_key or not media_bytes:
+        return None
+    if len(media_bytes) > GEMINI_INLINE_LIMIT:
+        log.info("media too large for inline Gemini (%d bytes); skipping", len(media_bytes))
+        return None
     try:
         import base64
 
         import httpx
 
-        model = settings.llm_model if settings.llm_model.startswith("gemini") else "gemini-2.0-flash"
-        b64 = base64.b64encode(image_bytes).decode()
+        model = (
+            settings.llm_model if settings.llm_model.startswith("gemini")
+            else "gemini-2.0-flash"
+        )
+        gen: dict = {"temperature": 0.2}
+        if want_json:
+            gen["responseMimeType"] = "application/json"
         r = httpx.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
             headers={"x-goog-api-key": settings.gemini_api_key},
@@ -160,18 +175,31 @@ def ocr_via_gemini(image_bytes: bytes) -> str:
                 "contents": [{
                     "role": "user",
                     "parts": [
-                        {"text": "Transcribe ALL visible text in this image exactly, "
-                                 "preserving line breaks. Output only the text, nothing else."},
-                        {"inline_data": {"mime_type": "image/jpeg", "data": b64}},
+                        {"text": prompt},
+                        {"inline_data": {
+                            "mime_type": media_mime,
+                            "data": base64.b64encode(media_bytes).decode(),
+                        }},
                     ],
                 }],
-                "generationConfig": {"temperature": 0.0},
+                "generationConfig": gen,
             },
-            timeout=45,
+            timeout=90,
         )
         r.raise_for_status()
         parts = r.json()["candidates"][0]["content"]["parts"]
         return "".join(p.get("text", "") for p in parts).strip()
     except Exception as exc:  # noqa: BLE001
-        log.warning("gemini OCR failed: %s", str(exc)[:120])
-        return ""
+        log.warning("gemini multimodal failed: %s", str(exc)[:140])
+        return None
+
+
+def ocr_via_gemini(image_bytes: bytes) -> str:
+    """Read visible text from an image using Gemini vision (replaces easyocr on
+    the light host, which cannot ship torch)."""
+    out = gemini_multimodal(
+        "Transcribe ALL visible text in this image exactly, preserving line "
+        "breaks. Output only the text, nothing else.",
+        image_bytes, "image/jpeg",
+    )
+    return out or ""

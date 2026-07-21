@@ -121,6 +121,8 @@ class Settings(BaseSettings):
     seed_on_startup: bool = False
 
     telegram_bot_token: str = ""
+    # Optional shared secret verified on the Telegram webhook (set via setWebhook).
+    telegram_webhook_secret: str = ""
 
     whatsapp_enabled: bool = False
     whatsapp_token: str = ""

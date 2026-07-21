@@ -13,7 +13,7 @@ from app.config import APP_NAME, APP_TAGLINE, settings
 from app.core.errors import SentinelError, sentinel_error_handler
 from app.core.logging import configure_logging, get_logger
 from app.db.session import init_db
-from app.routers import admin, analyze, health, organizations, reports
+from app.routers import admin, analyze, health, organizations, reports, telegram
 
 configure_logging()
 log = get_logger("main")
@@ -50,6 +50,7 @@ app.include_router(analyze.router)
 app.include_router(organizations.router)
 app.include_router(reports.router)
 app.include_router(admin.router)
+app.include_router(telegram.router)
 
 
 @app.on_event("startup")
