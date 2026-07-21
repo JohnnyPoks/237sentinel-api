@@ -68,6 +68,33 @@ A running log of meaningful choices and why. Newest at the bottom of each sectio
   build timeout. The primary path is fast on first call; media modalities fetch
   lazily. Documented as a trade-off in docs/MODELS.md.
 
+## Deployment architecture (as shipped)
+
+- **HF Docker Spaces now require a paid PRO plan**, so the free plan for the
+  backend changed: the API runs on **Render's free tier** (torch-free) and calls
+  the open-source models **hosted on Hugging Face** over the Inference API
+  (`INFERENCE_MODE=hf_api`). This is the same "models live elsewhere, reached by
+  an API key" pattern, and it keeps the backend inside a 512 MB host. The heavy
+  in-process path (`Dockerfile.full`, local transformers) is still there for a
+  big host / HF PRO.
+- **Model availability on the HF Inference API is uneven.** mDeBERTa zero-shot
+  and the ViT/SigLIP image deepfake models are served; the tiny custom urlbert
+  model returns 410 Gone, so link checking degrades to WHOIS + typosquatting +
+  the semantic layer (which is fine — those are the stronger signals for a link).
+- **Gemini is the LLM**, wired server-side (never in the browser). Because Gemini
+  is multimodal, media (image/PDF/audio/video) is sent to Gemini directly for the
+  semantic read, and Gemini vision replaces easyocr on the light host. The whole
+  thing degrades to the deterministic heuristic when Gemini is rate-limited.
+- **The default `Dockerfile` is the lite/Render image** with the non-secret
+  config baked in (`INFERENCE_MODE`, `LLM_PROVIDER`, `LLM_MODEL`,
+  `SEED_ON_STARTUP`), so a plain Render web service works with only the secret
+  keys supplied. The registry re-seeds on startup because the free disk is
+  ephemeral.
+- **The Telegram bot runs as a webhook inside the API web service** (not a
+  separate polling worker), because Render's free tier only runs web services.
+  The bot token stays a server-side secret; updates are processed in a background
+  task so Telegram gets an immediate 200.
+
 ## Open items / needs from the maintainer
 
 - A Postgres `DATABASE_URL` (Supabase/Neon) for production persistence.
