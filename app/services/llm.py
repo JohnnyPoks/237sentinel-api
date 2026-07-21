@@ -37,6 +37,51 @@ class NoneProvider:
         return NO_LLM
 
 
+class GeminiProvider:
+    """Google Gemini via the Generative Language API (no extra SDK; just httpx).
+
+    The key stays server-side — it is never shipped to the browser. Powers the
+    semantic and explanation layers (and, later, the conversational follow-up).
+    """
+
+    name = "gemini"
+
+    def __init__(self) -> None:
+        import httpx
+
+        self._key = settings.gemini_api_key
+        model = settings.llm_model or "gemini-2.0-flash"
+        # Guard against a non-Gemini model id being left in LLM_MODEL.
+        self._model = model if model.startswith("gemini") else "gemini-2.0-flash"
+        self._http = httpx.Client(timeout=45.0)
+
+    def complete(self, system: str, user: str, *, want_json: bool = False) -> str:
+        try:
+            url = (
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{self._model}:generateContent"
+            )
+            gen_config: dict = {"temperature": 0.2}
+            if want_json:
+                gen_config["responseMimeType"] = "application/json"
+            r = self._http.post(
+                url,
+                headers={"x-goog-api-key": self._key},
+                json={
+                    "systemInstruction": {"parts": [{"text": system}]},
+                    "contents": [{"role": "user", "parts": [{"text": user}]}],
+                    "generationConfig": gen_config,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+            parts = data["candidates"][0]["content"]["parts"]
+            return "".join(p.get("text", "") for p in parts)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("gemini completion failed: %s", exc)
+            return NO_LLM
+
+
 class AnthropicProvider:
     name = "anthropic"
 
@@ -144,7 +189,9 @@ def get_llm() -> LLMProvider:
         return _provider
     choice = (settings.llm_provider or "none").lower()
     try:
-        if choice == "anthropic" and settings.anthropic_api_key:
+        if choice == "gemini" and settings.gemini_api_key:
+            _provider = GeminiProvider()
+        elif choice == "anthropic" and settings.anthropic_api_key:
             _provider = AnthropicProvider()
         elif choice == "openai" and settings.openai_api_key:
             _provider = OpenAIProvider()

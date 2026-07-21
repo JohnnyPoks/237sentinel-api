@@ -10,11 +10,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import tldextract
-
 from app.config import Thresholds as T
 from app.core.logging import get_logger
 from app.schemas.analysis import ContentType, ServiceOutput, Signal
+from app.services.tld import extract as tld_extract
 
 log = get_logger("link")
 
@@ -48,7 +47,7 @@ def _levenshtein(a: str, b: str) -> int:
 
 
 def _root_domain(url: str) -> str:
-    ext = tldextract.extract(url)
+    ext = tld_extract(url)
     if ext.domain and ext.suffix:
         return f"{ext.domain}.{ext.suffix}".lower()
     return url.strip().lower()

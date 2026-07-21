@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import re
 
-import tldextract
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.tables import OrgAlert, OrgChannel, Organization
 from app.schemas.analysis import RegistryMatch
+from app.services.tld import extract as tld_extract
 
 
 def normalize_phone(value: str) -> str:
@@ -37,7 +37,7 @@ def normalize_handle(value: str) -> str:
 
 
 def normalize_domain(value: str) -> str:
-    ext = tldextract.extract(value)
+    ext = tld_extract(value)
     if ext.domain and ext.suffix:
         return f"{ext.domain}.{ext.suffix}".lower()
     return value.strip().lower()

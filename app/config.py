@@ -86,8 +86,9 @@ class Settings(BaseSettings):
 
     database_url: str = ""
 
-    llm_provider: str = "none"  # anthropic | openai | hf | none
-    llm_model: str = "claude-sonnet-5"
+    llm_provider: str = "none"  # gemini | anthropic | openai | hf | none
+    llm_model: str = "gemini-2.0-flash"
+    gemini_api_key: str = ""
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     openai_base_url: str = ""
