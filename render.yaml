@@ -5,7 +5,7 @@ services:
   - type: web
     name: 237sentinel-api
     runtime: docker
-    dockerfilePath: ./Dockerfile.lite
+    dockerfilePath: ./Dockerfile
     plan: free
     healthCheckPath: /health
     envVars:

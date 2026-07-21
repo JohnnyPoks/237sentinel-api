@@ -131,8 +131,9 @@ over HTTPS (`INFERENCE_MODE=hf_api`) instead of loading `torch` in-process. The
 semantic + explanation layers use Gemini. This fits Render's free 512 MB tier.
 
 1. Render dashboard → **New → Blueprint** → connect `JohnnyPoks/237sentinel-api`.
-   It reads [`render.yaml`](render.yaml) and builds [`Dockerfile.lite`](Dockerfile.lite)
-   (no torch; ffmpeg included).
+   It reads [`render.yaml`](render.yaml) and builds the default [`Dockerfile`](Dockerfile)
+   (no torch; ffmpeg included; `INFERENCE_MODE=hf_api` baked in). The heavy
+   in-process image lives in [`Dockerfile.full`](Dockerfile.full).
 2. Set the two secrets in the dashboard: `HF_API_KEY` (an HF token with
    "Inference Providers" permission, from <https://huggingface.co/settings/tokens>)
    and `GEMINI_API_KEY`.
