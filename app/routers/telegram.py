@@ -89,9 +89,10 @@ def _format(result: dict, lang: str) -> str:
         "Avant de partager, vérifiez la source."
         if lang == "fr" else "Before you share this, check the source."
     )
+    summary = exp.get(f"summary_{s}") or result.get("summary", "")
     return (
         f"{badge} *{exp.get(f'headline_{s}', '')}*\n\n"
-        f"{result.get('summary', '')}\n\n"
+        f"{summary}\n\n"
         f"{exp.get(f'body_{s}', '')}\n\n"
         f"_{exp.get(f'checked_{s}', '')}_\n\n"
         f"➡️ {exp.get(f'action_{s}', '')}\n\n{civic}"

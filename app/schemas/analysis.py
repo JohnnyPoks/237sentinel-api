@@ -85,6 +85,9 @@ class Explanation(BaseModel):
 
     headline_en: str
     headline_fr: str
+    # localized one-line "what this is" so the UI language always matches
+    summary_en: str = ""
+    summary_fr: str = ""
     body_en: str
     body_fr: str
     action_en: str

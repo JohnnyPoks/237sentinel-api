@@ -156,6 +156,17 @@ def run(
     output = _dispatch(
         content_type, text=text, file_bytes=file_bytes, suffix=suffix, db=db
     )
+    # If a caption/message was sent alongside a media file, analyse it too — the
+    # attached message may be harmful even when the file is not (and vice versa).
+    if text and content_type in (
+        ContentType.image, ContentType.audio, ContentType.video, ContentType.document
+    ):
+        try:
+            output.sub_outputs.append(text_service.analyze(text, db))
+            output.notes.append("accompanying message also analysed")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("caption analysis failed: %s", exc)
+
     signals = _flatten_signals(output)
     gathered_text = _gather_text(output)
 
@@ -174,8 +185,17 @@ def run(
     outcome = verification_engine.decide(signals, semantic, registry)
     checked_machine, checked_en, checked_fr = _checked_lists(content_type, gathered_text)
 
+    # If the content claims to be a known organisation, fetch its real channels
+    # so the explanation can point the user to the genuine contact.
+    known_org = None
+    if semantic.claimed_identity and not registry.matched:
+        known_org = registry_service.find_org_by_name(db, semantic.claimed_identity)
+    elif registry.matched and registry.organization_name:
+        known_org = registry_service.find_org_by_name(db, registry.organization_name)
+
     explanation = explanation_service.build(
-        outcome.verdict, semantic, registry, checked_en, checked_fr
+        outcome.verdict, semantic, registry, checked_en, checked_fr,
+        signals=signals, content_type=content_type.value, known_org=known_org,
     )
 
     # Persist (redacted preview only; raw media stored only with consent).

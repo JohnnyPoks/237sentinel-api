@@ -103,6 +103,35 @@ def match_any(db: Session, text: str) -> RegistryMatch:
     return RegistryMatch(matched=False)
 
 
+def find_org_by_name(db: Session, name: str) -> dict | None:
+    """Best-effort lookup of a claimed organisation by name, returning its real
+    official channels — so the explanation can point the user to the genuine
+    contact instead of the one in a suspicious message. Returns None if unknown.
+    """
+    if not name:
+        return None
+    needle = name.strip().lower()
+    if len(needle) < 3:
+        return None
+    orgs = db.execute(
+        select(Organization).where(Organization.is_active.is_(True))
+    ).scalars()
+    for org in orgs:
+        oname = org.name.lower()
+        # match on the short code (e.g. "MINESEC") or a clear name overlap
+        short = oname.split("—")[0].strip()
+        if short and (short in needle or needle in short) and len(short) >= 3:
+            return {
+                "name": org.name,
+                "website": org.website,
+                "channels": [
+                    {"type": c.channel_type, "value": c.value, "label": c.label}
+                    for c in org.channels
+                ],
+            }
+    return None
+
+
 def raise_impersonation_alert(
     db: Session, claimed_identity: str, analysis_id: str | None, reason: str
 ) -> None:

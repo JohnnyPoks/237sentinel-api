@@ -28,15 +28,20 @@ from, and what it asks the person to do.
 Return ONLY a single JSON object, no prose, with exactly these keys:
 {
  "summary": "one plain sentence describing what this content is",
- "claimed_identity": "who or what it claims to be from, or null",
+ "claimed_identity": "the ORGANISATION or official body it claims to be from \
+(e.g. a bank, a ministry, an operator), or null. A document author's personal \
+name is NOT a claimed identity — use null for that.",
  "requested_action": "what it wants the person to do, or null",
  "financial_request": true or false,
  "urgency_pressure": true or false,
- "identity_claim": true or false,
+ "identity_claim": true only if it claims to be an official body/organisation; \
+false for ordinary personal or informational content,
  "topic": "investment|recruitment|scholarship|payment|announcement|other",
  "language_detected": "en|fr|mixed",
  "reasoning": "one short sentence for the audit trail"
 }
+Do not invent suspicion. Ordinary, informational or personal content with no \
+money request and no official impersonation is normal — reflect that honestly. \
 Never output the words "AI-generated". Describe what is happening, not how it \
 was made."""
 
