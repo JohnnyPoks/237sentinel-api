@@ -27,7 +27,8 @@ from, and what it asks the person to do.
 
 Return ONLY a single JSON object, no prose, with exactly these keys:
 {
- "summary": "one plain sentence describing what this content is",
+ "summary": "one plain sentence (ENGLISH) describing what this content is",
+ "summary_fr": "the SAME sentence in French",
  "claimed_identity": "the ORGANISATION or official body it claims to be from \
 (e.g. a bank, a ministry, an operator), or null. A document author's personal \
 name is NOT a claimed identity — use null for that.",
@@ -47,10 +48,13 @@ was made."""
 
 
 # --- Heuristic fallback lexicons (EN + FR). Deliberately conservative. --------
+# Requires an amount or a payment/transfer verb — NOT the bare word "money"
+# (so "ways to make money online" no longer counts as a financial request).
 _MONEY = re.compile(
-    r"\b(fcfa|xaf|cfa|frs?|francs?|money|argent|payer?|pay|transfer|"
-    r"mobile\s?money|momo|orange\s?money|deposit|dép[oô]t|frais|fee|"
-    r"virement|recharge|montant|\d[\d\s.,]{2,}\s?(?:fcfa|xaf|cfa|frs?))\b",
+    r"(\d[\d\s.,]{1,}\s?(?:fcfa|xaf|cfa|frs?|francs?)"
+    r"|\b(?:payer|pay|send|envoyer|transfer|virement|deposit|dép[oô]t|recharge|"
+    r"frais|fee|momo|mobile\s?money|orange\s?money|western\s?union|"
+    r"processing\s?fee|activation)\b)",
     re.I,
 )
 _URGENCY = re.compile(
@@ -117,12 +121,27 @@ def _heuristic(text: str, findings: list[Signal]) -> SemanticResult:
         if rx.search(t):
             topic = name
             break
-    snippet = " ".join(t.split())[:140]
+    topic_en = {
+        "investment": "an investment offer", "recruitment": "a job or recruitment message",
+        "scholarship": "a scholarship message", "payment": "a payment request",
+        "announcement": "an announcement", "other": "a message or document",
+    }.get(topic, "a message")
+    topic_fr = {
+        "investment": "une offre d'investissement", "recruitment": "un message de recrutement",
+        "scholarship": "un message de bourse", "payment": "une demande de paiement",
+        "announcement": "une annonce", "other": "un message ou un document",
+    }.get(topic, "un message")
     summary = (
-        f"A {topic} message"
+        f"This looks like {topic_en}"
         + (" that asks for money" if financial else "")
         + (" and creates time pressure" if urgency else "")
-        + (f": “{snippet}”" if snippet else ".")
+        + "."
+    )
+    summary_fr = (
+        f"Ceci ressemble à {topic_fr}"
+        + (" qui demande de l'argent" if financial else "")
+        + (" et qui crée une pression de temps" if urgency else "")
+        + "."
     )
     action = None
     if financial:
@@ -131,6 +150,7 @@ def _heuristic(text: str, findings: list[Signal]) -> SemanticResult:
         action = "share a secret code, PIN or password"
     return SemanticResult(
         summary=summary,
+        summary_fr=summary_fr,
         claimed_identity=None if not identity else "an official-sounding sender",
         requested_action=action,
         financial_request=financial,

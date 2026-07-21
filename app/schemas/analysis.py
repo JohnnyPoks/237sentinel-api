@@ -53,7 +53,8 @@ class Signal(BaseModel):
 class SemanticResult(BaseModel):
     """Strict output contract for the semantic layer LLM (brief §5)."""
 
-    summary: str
+    summary: str  # English
+    summary_fr: str = ""  # French version of the same sentence
     claimed_identity: str | None = None
     requested_action: str | None = None
     financial_request: bool = False
