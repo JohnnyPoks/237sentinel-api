@@ -86,6 +86,10 @@ def _startup() -> None:
                 json=payload, timeout=15,
             )
             log.info("telegram setWebhook -> %s (%s)", url, r.json().get("description"))
+            # Register the command menu + menu button so the bot looks polished.
+            from app.routers.telegram import configure_bot
+
+            configure_bot()
         except Exception as exc:  # noqa: BLE001
             log.warning("telegram setWebhook failed: %s", exc)
 
